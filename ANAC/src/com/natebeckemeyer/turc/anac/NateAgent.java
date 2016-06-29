@@ -1,4 +1,4 @@
-package com.natebeckemeyer.school.anac.agent;
+package com.natebeckemeyer.turc.anac;
 
 import agents.SimpleAgent;
 import javafx.util.Pair;
@@ -20,6 +20,7 @@ import java.util.Random;
  * @author W.Pasman Some improvements over the standard SimpleAgent.
  *         <p>
  *         Random Walker, Zero Intelligence Agent
+ *         Being modified slowly by Nate.
  */
 public class NateAgent extends Agent
 {

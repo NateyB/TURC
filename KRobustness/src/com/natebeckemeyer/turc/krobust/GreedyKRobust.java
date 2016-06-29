@@ -1,4 +1,4 @@
-package com.natebeckemeyer.turc;
+package com.natebeckemeyer.turc.krobust;
 
 import k.robust.Agent;
 import k.robust.Task;
