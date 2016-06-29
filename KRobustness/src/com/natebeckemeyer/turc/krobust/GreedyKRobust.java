@@ -113,8 +113,4 @@ public class GreedyKRobust implements TeamFinderInterface
 
         return () -> team;
     }
-
-    public static void main(String[] args)
-    {
-    }
 }
