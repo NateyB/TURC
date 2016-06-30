@@ -1,20 +1,17 @@
 package com.natebeckemeyer.turc.anac;
 
-import agents.SimpleAgent;
 import javafx.util.Pair;
-import negotiator.Agent;
+import negotiator.AgentID;
 import negotiator.Bid;
 import negotiator.actions.Accept;
 import negotiator.actions.Action;
 import negotiator.actions.Offer;
 import negotiator.issue.*;
-import negotiator.session.Timeline;
+import negotiator.parties.AbstractNegotiationParty;
 import negotiator.utility.*;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * @author W.Pasman Some improvements over the standard SimpleAgent.
@@ -22,38 +19,41 @@ import java.util.Random;
  *         Random Walker, Zero Intelligence Agent
  *         Being modified slowly by Nate.
  */
-public class NateAgent extends Agent
+public class NateAgent extends AbstractNegotiationParty
 {
-    private Action actionOfPartner = null;
     /**
-     * Note: {@link SimpleAgent} does not account for the discount factor in its
-     * computations
+     * The history of each partner's agent coded to its ID.
      */
-    private static double MINIMUM_BID_UTILITY = 0.0;
-
-    private HashMap<Issue, Number> valuations = new HashMap<>();
+    private HashMap<AgentID, Opponent> opponents = new HashMap<>();
 
     /**
-     * The maximum bid for this agent
+     * The agent that this agent interacted with most recently.
      */
-    private Bid maxBid;
+    private AgentID lastAgent;
 
+    /**
+     * The mapping from each objective being discussed to a pair of its weight and a hashmap of its possible values to
+     * their weights.
+     */
     private HashMap<Objective, Pair<Double, HashMap<Value, Double>>> utilities = new HashMap<>();
+
+    /**
+     * The utility space for this agent across preference profiles.
+     */
+    private static AdditiveUtilitySpace mainUtilitySpace;
 
     /**
      * init is called when a next session starts with the same opponent.
      * In the case of this agent, init calculates the utilities of all of the
      */
-    @Override
     public void init()
     {
-        MINIMUM_BID_UTILITY = utilitySpace.getReservationValueUndiscounted();
-
         HashMap<Objective, Evaluator> itemUtilities = new HashMap<>();
-        AdditiveUtilitySpace space = ((AdditiveUtilitySpace) utilitySpace);
+        mainUtilitySpace = ((AdditiveUtilitySpace) utilitySpace);
 
-        if (space != null && space.getNrOfEvaluators() >= 0 && space.getEvaluators() != null)
-            space.getEvaluators().forEach(entry -> itemUtilities.put(entry.getKey(), entry.getValue()));
+        if (mainUtilitySpace != null && mainUtilitySpace.getNrOfEvaluators() >= 0 &&
+                mainUtilitySpace.getEvaluators() != null)
+            mainUtilitySpace.getEvaluators().forEach(entry -> itemUtilities.put(entry.getKey(), entry.getValue()));
 
         for (Map.Entry<Objective, Evaluator> entryVal : itemUtilities.entrySet())
         {
@@ -73,6 +73,7 @@ public class NateAgent extends Agent
                         case CONSTANT:
                         case FARATIN:
                     }
+                    System.err.println(getName() + getVersion() + " is unprepared for real valuation functions.");
                     break;
 
                 case INTEGER:
@@ -85,12 +86,13 @@ public class NateAgent extends Agent
                         case CONSTANT:
                         case FARATIN:
                     }
+                    System.err.println(getName() + getVersion() + " is unprepared for integer valuation functions.");
                     break;
 
                 case DISCRETE:
                     EvaluatorDiscrete evaluatorDiscrete = ((EvaluatorDiscrete) value);
                     evaluatorDiscrete.getValues().forEach(valueDiscrete -> utilities.get(key).getValue()
-                            .put(valueDiscrete, evaluatorDiscrete.getValue(valueDiscrete) * value.getWeight()));
+                            .put(valueDiscrete, evaluatorDiscrete.getValue(valueDiscrete).doubleValue()));
                     break;
 
                 default:
@@ -113,58 +115,25 @@ public class NateAgent extends Agent
         }
     }
 
-    @Override
     public String getVersion()
     {
-        return "1.0";
+        return "2.0";
     }
 
-    @Override
+
     public String getName()
     {
-        return "Nate's Agent";
+        return "MeanBot";
     }
 
-    @Override
+
     public void ReceiveMessage(Action opponentAction)
     {
-        actionOfPartner = opponentAction;
-    }
+        AgentID agent = opponentAction.getAgent();
+        lastAgent = agent;
 
-    @Override
-    public Action chooseAction()
-    {
-        Action action = null;
-        try
-        {
-            if (actionOfPartner == null)
-                action = chooseRandomBidAction();
-            if (actionOfPartner instanceof Offer)
-            {
-                Bid partnerBid = ((Offer) actionOfPartner).getBid();
-                double offeredUtilFromOpponent = getUtility(partnerBid);
-                // get current time
-                double time = timeline.getTime();
-                action = chooseRandomBidAction();
-
-                Bid myBid = ((Offer) action).getBid();
-                double myOfferedUtil = getUtility(myBid);
-
-                // accept under certain circumstances
-                if (isAcceptable(offeredUtilFromOpponent, myOfferedUtil, time))
-                    action = new Accept(getAgentID());
-
-            }
-            if (timeline.getType().equals(Timeline.Type.Time))
-            {
-                sleep(0.005); // just for fun
-            }
-        } catch (Exception e)
-        {
-            System.out.println("Exception in ChooseAction:" + e.getMessage());
-            action = new Accept(getAgentID()); // best guess if things go wrong.
-        }
-        return action;
+        opponents.putIfAbsent(agent, new Opponent(agent, mainUtilitySpace));
+        opponents.get(agent).addAction(opponentAction);
     }
 
     private boolean isAcceptable(double offeredUtilFromOpponent,
@@ -194,8 +163,8 @@ public class NateAgent extends Agent
                     + ". cancelling bidding");
         }
         if (nextBid == null)
-            return (new Accept(getAgentID()));
-        return (new Offer(getAgentID(), nextBid));
+            return (new Accept());
+        return (new Offer(nextBid));
     }
 
     /**
@@ -215,7 +184,7 @@ public class NateAgent extends Agent
         // note that this may never succeed if you set MINIMUM too high!!!
         // in that case we will search for a bid till the time is up (3 minutes)
         // but this is just a simple agent.
-        Bid bid = null;
+        Bid bid;
         do
         {
             for (Issue lIssue : issues)
@@ -252,7 +221,7 @@ public class NateAgent extends Agent
             }
             bid = new Bid(utilitySpace.getDomain(), values);
 
-        } while (getUtility(bid) < MINIMUM_BID_UTILITY);
+        } while (getUtility(bid) < 0.0);
 
         return bid;
     }
@@ -292,16 +261,68 @@ public class NateAgent extends Agent
         return x * x;
     }
 
-    private <K> HashMap<K, Double> normalize(Map<K, Double> doubleMap)
+    static <K> HashMap<K, Double> normalize(Map<K, Double> doubleMap)
     {
-        double sum = doubleMap.keySet().stream().mapToDouble(k -> doubleMap.get(k).doubleValue()).sum();
-        HashMap<K, Double> map = new HashMap<>(doubleMap.size());
+        double sum = 0;
+        for (double val : doubleMap.values())
+            sum += val;
 
-        if (sum != 0)
-            doubleMap.keySet().stream().forEach(k -> map.put(k, (doubleMap.get(k).doubleValue() / sum)));
+        HashMap<K, Double> map = new HashMap<>(doubleMap.size());
+        final double total = sum;
+
+        if (total != 0)
+            doubleMap.keySet().stream().forEach(k -> map.put(k, doubleMap.get(k) / total));
         else
             doubleMap.keySet().stream().forEach(k -> map.put(k, 1. / doubleMap.entrySet().size()));
 
         return map;
+    }
+
+    /**
+     * @return A mapping from the objectives to their possible values.
+     */
+    HashMap<Objective, ArrayList<String>> getPreferenceDomain()
+    {
+        HashMap<Objective, ArrayList<String>> mapping = new HashMap<>();
+        for (Map.Entry<Objective, Evaluator> entry : mainUtilitySpace.getEvaluators())
+            mapping.put(entry.getKey(), new ArrayList<>(
+                    ((EvaluatorDiscrete) entry.getValue()).getValues().stream().map(ValueDiscrete::getValue)
+                            .collect(Collectors.toList())));
+
+        return mapping;
+    }
+
+    @Override
+    public Action chooseAction(List<Class<? extends Action>> list)
+    {
+        Action action = null;
+        try
+        {
+            if (lastAgent == null || opponents.get(lastAgent).getLastAction() == null)
+                action = new Offer(utilitySpace.getMaxUtilityBid());
+            else if (opponents.get(lastAgent).getLastAction() instanceof Offer)
+            {
+                Bid partnerBid = ((Offer) opponents.get(lastAgent).getLastAction()).getBid();
+                double offeredUtilFromOpponent = getUtility(partnerBid);
+
+                // get current time
+                double time = timeline.getTime();
+                action = chooseRandomBidAction();
+
+                Bid myBid = ((Offer) action).getBid();
+                double myOfferedUtil = getUtility(myBid);
+
+                // accept under certain circumstances
+                if (isAcceptable(offeredUtilFromOpponent, myOfferedUtil, time))
+                    action = new Accept();
+
+            }
+        } catch (Exception e)
+        {
+            System.out.println("Exception in ChooseAction:" + e.getMessage());
+            action = new Accept(); // best guess if things go wrong.
+        }
+        return action;
+
     }
 }
