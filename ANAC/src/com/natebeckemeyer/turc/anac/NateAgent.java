@@ -3,11 +3,14 @@ package com.natebeckemeyer.turc.anac;
 import javafx.util.Pair;
 import negotiator.AgentID;
 import negotiator.Bid;
+import negotiator.Deadline;
 import negotiator.actions.Accept;
 import negotiator.actions.Action;
+import negotiator.actions.Inform;
 import negotiator.actions.Offer;
 import negotiator.issue.*;
 import negotiator.parties.AbstractNegotiationParty;
+import negotiator.session.TimeLineInfo;
 import negotiator.utility.*;
 
 import java.util.*;
@@ -46,8 +49,9 @@ public class NateAgent extends AbstractNegotiationParty
      * init is called when a next session starts with the same opponent.
      * In the case of this agent, init calculates the utilities of all of the
      */
-    public void init()
+    public void init(AbstractUtilitySpace util, Deadline deadline, TimeLineInfo info, long randomSeed, AgentID id)
     {
+        super.init(util, deadline, info, randomSeed, id);
         HashMap<Objective, Evaluator> itemUtilities = new HashMap<>();
         mainUtilitySpace = ((AdditiveUtilitySpace) utilitySpace);
 
@@ -124,16 +128,6 @@ public class NateAgent extends AbstractNegotiationParty
     public String getName()
     {
         return "MeanBot";
-    }
-
-
-    public void ReceiveMessage(Action opponentAction)
-    {
-        AgentID agent = opponentAction.getAgent();
-        lastAgent = agent;
-
-        opponents.putIfAbsent(agent, new Opponent(agent, mainUtilitySpace));
-        opponents.get(agent).addAction(opponentAction);
     }
 
     private boolean isAcceptable(double offeredUtilFromOpponent,
@@ -323,6 +317,14 @@ public class NateAgent extends AbstractNegotiationParty
             action = new Accept(); // best guess if things go wrong.
         }
         return action;
+
+    }
+
+    public void receiveMessage(AgentID sender, Action arguments) {
+        lastAgent = sender;
+
+        opponents.putIfAbsent(sender, new Opponent(sender, mainUtilitySpace));
+        opponents.get(sender).addAction(arguments);
 
     }
 }

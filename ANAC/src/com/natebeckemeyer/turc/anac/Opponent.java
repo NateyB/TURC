@@ -139,7 +139,7 @@ class Opponent
 
             estimatedUtilities.put(key, new Pair<>(0., new HashMap<>()));
             evaluatorDiscrete.getValues().forEach(valueDiscrete -> estimatedUtilities.get(key).getValue()
-                    .put(valueDiscrete, evaluatorDiscrete.getValue(valueDiscrete).doubleValue()));
+                    .put(valueDiscrete, 0.));
         }
 
 
