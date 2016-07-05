@@ -53,7 +53,7 @@ class Opponent
     /**
      * The strategy used to estimate the utilities of "Opponent."
      */
-    private final UtilityEstimation estimationStrategy = UtilityEstimation.FREQUENCY;
+    private final Updater estimationStrategy = new FrequencyEstimation();
 
     /**
      * @return The ID of the agent.
@@ -70,7 +70,6 @@ class Opponent
     {
         return history;
     }
-
 
     /**
      * Construct a new agent opponent with an empty history.
@@ -93,7 +92,7 @@ class Opponent
     {
         this.id = id;
         this.utilitySpace = utilitySpace;
-        history = new ArrayList<>(possibleHistory);
+        this.history = new ArrayList<>(possibleHistory);
 
         initializeEstimatedUtilities();
     }
@@ -128,7 +127,15 @@ class Opponent
     }
 
     /**
-     * Populates the estimated utilities field, with 0 for weights and 1 for the subissue values.
+     * @return The utilities estimated for this opponent.
+     */
+    public HashMap<Objective, Pair<Double, HashMap<Value, Double>>> getEstimatedUtilities()
+    {
+        return estimatedUtilities;
+    }
+
+    /**
+     * Populates the estimated utilities field, with 0 for everything.
      */
     private void initializeEstimatedUtilities()
     {
@@ -138,15 +145,9 @@ class Opponent
             EvaluatorDiscrete evaluatorDiscrete = (EvaluatorDiscrete) entry.getValue();
 
             estimatedUtilities.put(key, new Pair<>(0., new HashMap<>()));
-            evaluatorDiscrete.getValues().forEach(valueDiscrete -> estimatedUtilities.get(key).getValue()
-                    .put(valueDiscrete, 0.));
+            evaluatorDiscrete.getValues().forEach(discreteVal -> estimatedUtilities.get(key).getValue()
+                    .put(discreteVal, 0.));
         }
-
-
-        for (HashMap.Entry<Objective, Pair<Double, HashMap<Value, Double>>> objectivePairEntry : estimatedUtilities
-                .entrySet())
-            estimatedUtilities.put(objectivePairEntry.getKey(), new Pair<>(objectivePairEntry.getValue().getKey(),
-                    NateAgent.normalize(objectivePairEntry.getValue().getValue())));
     }
 
 }

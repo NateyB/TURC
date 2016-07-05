@@ -4,26 +4,33 @@ import javafx.util.Pair;
 import negotiator.AgentID;
 import negotiator.Bid;
 import negotiator.Deadline;
+import negotiator.DiscreteTimeline;
 import negotiator.actions.Accept;
 import negotiator.actions.Action;
-import negotiator.actions.Inform;
 import negotiator.actions.Offer;
 import negotiator.issue.*;
 import negotiator.parties.AbstractNegotiationParty;
 import negotiator.session.TimeLineInfo;
-import negotiator.utility.*;
+import negotiator.utility.AbstractUtilitySpace;
+import negotiator.utility.AdditiveUtilitySpace;
+import negotiator.utility.Evaluator;
+import negotiator.utility.EvaluatorDiscrete;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
- * @author W.Pasman Some improvements over the standard SimpleAgent.
+ * @author Nate Beckemeyer
  *         <p>
- *         Random Walker, Zero Intelligence Agent
- *         Being modified slowly by Nate.
+ *         This class is my ANAC agent implementation.
  */
 public class NateAgent extends AbstractNegotiationParty
 {
+    /**
+     * This flag determines whether, at certain points, output is necessary. Error messages are always generated,
+     * but setting this flag to true silences intermediary noise.
+     */
+    private static final boolean verbose = false;
+
     /**
      * The history of each partner's agent coded to its ID.
      */
@@ -41,9 +48,14 @@ public class NateAgent extends AbstractNegotiationParty
     private HashMap<Objective, Pair<Double, HashMap<Value, Double>>> utilities = new HashMap<>();
 
     /**
-     * The utility space for this agent across preference profiles.
+     * The utility space for this agent.
      */
-    private static AdditiveUtilitySpace mainUtilitySpace;
+    private AdditiveUtilitySpace mainUtilitySpace;
+
+    /**
+     * The minimum utility acceptable for the random bid.
+     */
+    private double minUtilityRandom = 0.0;
 
     /**
      * init is called when a next session starts with the same opponent.
@@ -52,71 +64,53 @@ public class NateAgent extends AbstractNegotiationParty
     public void init(AbstractUtilitySpace util, Deadline deadline, TimeLineInfo info, long randomSeed, AgentID id)
     {
         super.init(util, deadline, info, randomSeed, id);
+
         HashMap<Objective, Evaluator> itemUtilities = new HashMap<>();
         mainUtilitySpace = ((AdditiveUtilitySpace) utilitySpace);
 
-        if (mainUtilitySpace != null && mainUtilitySpace.getNrOfEvaluators() >= 0 &&
-                mainUtilitySpace.getEvaluators() != null)
+        if (mainUtilitySpace != null && mainUtilitySpace.getNrOfEvaluators() > 0)
             mainUtilitySpace.getEvaluators().forEach(entry -> itemUtilities.put(entry.getKey(), entry.getValue()));
+        else
+        {
+            System.err.println("Cannot use " + getName() + getVersion() + " with non-linear utility space.");
+            System.exit(16);
+        }
 
         for (Map.Entry<Objective, Evaluator> entryVal : itemUtilities.entrySet())
         {
-            Objective key = entryVal.getKey();
-            Evaluator value = entryVal.getValue();
-            utilities.put(key, new Pair<>(value.getWeight(), new HashMap<>()));
+            Objective issue = entryVal.getKey();
+            Evaluator issueEval = entryVal.getValue();
+            utilities.put(issue, new Pair<>(issueEval.getWeight(), new HashMap<>()));
 
-            switch (value.getType())
+            switch (issueEval.getType())
             {
-                case REAL:
-                    EvaluatorReal evaluatorReal = ((EvaluatorReal) value);
-                    switch (evaluatorReal.getFuncType())
-                    {
-                        case LINEAR:
-                        case TRIANGULAR:
-                        case TRIANGULAR_VARIABLE_TOP:
-                        case CONSTANT:
-                        case FARATIN:
-                    }
-                    System.err.println(getName() + getVersion() + " is unprepared for real valuation functions.");
-                    break;
-
-                case INTEGER:
-                    EvaluatorInteger evaluatorInteger = ((EvaluatorInteger) value);
-                    switch (evaluatorInteger.getFuncType())
-                    {
-                        case LINEAR:
-                        case TRIANGULAR:
-                        case TRIANGULAR_VARIABLE_TOP:
-                        case CONSTANT:
-                        case FARATIN:
-                    }
-                    System.err.println(getName() + getVersion() + " is unprepared for integer valuation functions.");
-                    break;
 
                 case DISCRETE:
-                    EvaluatorDiscrete evaluatorDiscrete = ((EvaluatorDiscrete) value);
-                    evaluatorDiscrete.getValues().forEach(valueDiscrete -> utilities.get(key).getValue()
+                    EvaluatorDiscrete evaluatorDiscrete = ((EvaluatorDiscrete) issueEval);
+                    evaluatorDiscrete.getValues().forEach(valueDiscrete -> utilities.get(issue).getValue()
                             .put(valueDiscrete, evaluatorDiscrete.getValue(valueDiscrete).doubleValue()));
                     break;
 
+                case REAL:
+                case INTEGER:
                 default:
-                    System.err.println(
-                            "Nate wasn't prepared for this moment. Value neither real, integer, nor discrete.");
+                    System.err.println(getName() + getVersion() + " requires exclusively discrete evaluators.");
                     break;
             }
             for (HashMap.Entry<Objective, Pair<Double, HashMap<Value, Double>>> map : utilities.entrySet())
                 utilities.put(map.getKey(), new Pair<>(map.getValue().getKey(), normalize(map.getValue().getValue())));
         }
 
-        for (HashMap.Entry<Objective, Pair<Double, HashMap<Value, Double>>> entry : utilities.entrySet())
-        {
-            System.out.printf("The values for item %s, weighted %f, are as follows:%n", entry.getKey().getName(),
-                    entry.getValue().getKey());
-            for (Map.Entry<Value, Double> value : entry.getValue().getValue().entrySet())
-                System.out.printf("%5sSub-item: %25s has value %10f%n", "", value.getKey().toString(),
-                        value.getValue());
-            System.out.println();
-        }
+        if (verbose)
+            for (HashMap.Entry<Objective, Pair<Double, HashMap<Value, Double>>> entry : utilities.entrySet())
+            {
+                System.out.printf("The values for item %s, weighted %f, are as follows:%n", entry.getKey().getName(),
+                        entry.getValue().getKey());
+                for (Map.Entry<Value, Double> value : entry.getValue().getValue().entrySet())
+                    System.out.printf("%5sSub-item: %25s has value %10f%n", "", value.getKey().toString(),
+                            value.getValue());
+                System.out.println();
+            }
     }
 
     public String getVersion()
@@ -128,15 +122,6 @@ public class NateAgent extends AbstractNegotiationParty
     public String getName()
     {
         return "MeanBot";
-    }
-
-    private boolean isAcceptable(double offeredUtilFromOpponent,
-                                 double myOfferedUtil, double time) throws Exception
-    {
-        double P = Paccept(offeredUtilFromOpponent, time);
-        if (P > Math.random())
-            return true;
-        return false;
     }
 
     /**
@@ -153,7 +138,7 @@ public class NateAgent extends AbstractNegotiationParty
             nextBid = getRandomBid();
         } catch (Exception e)
         {
-            System.out.println("Problem with received bid:" + e.getMessage()
+            System.err.println("Problem with received bid:" + e.getMessage()
                     + ". cancelling bidding");
         }
         if (nextBid == null)
@@ -169,7 +154,7 @@ public class NateAgent extends AbstractNegotiationParty
      */
     private Bid getRandomBid() throws Exception
     {
-        HashMap<Integer, Value> values = new HashMap<Integer, Value>(); // pairs
+        HashMap<Integer, Value> values = new HashMap<>(); // pairs
         // <issuenumber,chosen, value string>
         ArrayList<Issue> issues = utilitySpace.getDomain().getIssues();
         Random randomnr = new Random();
@@ -215,44 +200,9 @@ public class NateAgent extends AbstractNegotiationParty
             }
             bid = new Bid(utilitySpace.getDomain(), values);
 
-        } while (getUtility(bid) < 0.0);
+        } while (getUtility(bid) < minUtilityRandom);
 
         return bid;
-    }
-
-    /**
-     * This function determines the accept probability for an offer. At t=0 it
-     * will prefer high-utility offers. As t gets closer to 1, it will accept
-     * lower utility offers with increasing probability. it will never accept
-     * offers with utility 0.
-     *
-     * @param u  is the utility
-     * @param t1 is the time as fraction of the total available time (t=0 at
-     *           start, and t=1 at end time)
-     * @return the probability of an accept at time t
-     * @throws Exception if you use wrong values for u or t.
-     */
-    double Paccept(double u, double t1) throws Exception
-    {
-        double t = t1 * t1 * t1; // steeper increase when deadline approaches.
-        if (u < 0 || u > 1.05)
-            throw new Exception("utility " + u + " outside [0,1]");
-        // normalization may be slightly off, therefore we have a broad boundary
-        // up to 1.05
-        if (t < 0 || t > 1)
-            throw new Exception("time " + t + " outside [0,1]");
-        if (u > 1.)
-            u = 1;
-        if (t == 0.5)
-            return u;
-        return (u - 2. * u * t + 2. * (-1. + t + Math.sqrt(sq(-1. + t) + u
-                * (-1. + 2 * t))))
-                / (-1. + 2 * t);
-    }
-
-    double sq(double x)
-    {
-        return x * x;
     }
 
     static <K> HashMap<K, Double> normalize(Map<K, Double> doubleMap)
@@ -273,17 +223,130 @@ public class NateAgent extends AbstractNegotiationParty
     }
 
     /**
-     * @return A mapping from the objectives to their possible values.
+     * This method assumes that, as time goes on, my assessment of the true utilities of my opponents becomes more
+     * accurate; however, this assumption is likely not well-founded (because the exploration side of my agent is
+     * lacking).
+     *
+     * @return The perceived upper-end probability of constructing a deal at this point in time.
      */
-    HashMap<Objective, ArrayList<String>> getPreferenceDomain()
+    private double getDealProbability()
     {
-        HashMap<Objective, ArrayList<String>> mapping = new HashMap<>();
-        for (Map.Entry<Objective, Evaluator> entry : mainUtilitySpace.getEvaluators())
-            mapping.put(entry.getKey(), new ArrayList<>(
-                    ((EvaluatorDiscrete) entry.getValue()).getValues().stream().map(ValueDiscrete::getValue)
-                            .collect(Collectors.toList())));
+        return timeline.getTime();
+    }
+
+    /**
+     * Calculates utility as a function of social welfare.
+     *
+     * @return The best known utility for the current timestep.
+     */
+    private double getUtility()
+    {
+        double util = 0;
+        try
+        {
+            HashMap<Objective, Value> valueMapping = maximizeSocialWelfare();
+            for (Objective issue : valueMapping.keySet())
+                for (Opponent opponent : opponents.values())
+                    util += opponent.getEstimatedUtilities().get(issue).getValue().get(valueMapping.get(issue));
+        } catch (NullPointerException e)
+        {
+            System.err.println("Could not get utility at time " + timeline.getTime());
+            return 0;
+        }
+
+        return util;
+    }
+
+    private HashMap<Objective, Value> maximizeSocialWelfare()
+    {
+
+        HashMap<Objective, Value> mapping = new HashMap<>();
+
+        for (Objective issue : utilities.keySet())
+        {
+            Value argmax = null;
+            double soWel = 0;
+
+            for (Value current : utilities.get(issue).getValue().keySet())
+            {
+                double welfare = 0;
+
+                for (Opponent opponent : opponents.values())
+                    welfare += opponent.getEstimatedUtilities().get(issue).getValue().getOrDefault(current, 0.);
+
+                if (welfare > soWel || argmax == null)
+                {
+                    argmax = current;
+                    soWel = welfare;
+                }
+            }
+
+            mapping.put(issue, argmax);
+        }
 
         return mapping;
+    }
+
+    private double getDecay(double time)
+    {
+        return Math.exp(-5 * time);
+    }
+
+    private double getUpperDealValue()
+    {
+        double probability = getDealProbability();
+        double upperUtility = getUtility();
+
+        return upperUtility * probability;
+    }
+
+    private double getUpperNextDeal()
+    {
+        double difference = getDecay((timeline.getCurrentTime() + 1) / timeline.getTotalTime());
+
+        double utility = getUtility() + difference;
+        double nextProbability = getDealProbability() - timeline.getTotalTime() / (timeline.getCurrentTime() + 1);
+        double discount = utilitySpace.getDiscountFactor();
+
+        switch (timeline.getType())
+        {
+            case Time:
+                if (timeline.getCurrentTime() >= .99)
+                    return 0;
+                break;
+
+            case Rounds:
+                if (((DiscreteTimeline) timeline).getOwnRoundsLeft() <= 0)
+                    return 0;
+                break;
+
+            default:
+                System.err.println(
+                        getName() + getVersion() + " is not compatible with a timeline of type " + timeline.getType());
+                System.exit(16);
+                return 0;
+        }
+
+        return discount * nextProbability * utility;
+    }
+
+    private Bid maximizeSocialWelfareBid()
+    {
+        HashMap<Objective, Value> soWelMap = maximizeSocialWelfare();
+
+        HashMap<Integer, Value> bidMap = new HashMap<>();
+        soWelMap.forEach((objective, value) -> bidMap.put(objective.getNumber(), value));
+
+        return new Bid(utilitySpace.getDomain(), bidMap);
+    }
+
+    @Override
+    public void receiveMessage(AgentID sender, Action arguments)
+    {
+        lastAgent = sender;
+
+        opponents.putIfAbsent(sender, new Opponent(sender, mainUtilitySpace));
+        opponents.get(sender).addAction(arguments);
     }
 
     @Override
@@ -292,39 +355,37 @@ public class NateAgent extends AbstractNegotiationParty
         Action action = null;
         try
         {
+            double EUDeal = getUpperDealValue();
+            double EUNeal = getUpperNextDeal();
+            minUtilityRandom = EUNeal;
+
             if (lastAgent == null || opponents.get(lastAgent).getLastAction() == null)
-                action = new Offer(utilitySpace.getMaxUtilityBid());
+                if (EUDeal > EUNeal)
+                    action = new Offer(maximizeSocialWelfareBid());
+                else
+                    action = new Offer(getRandomBid());
+
             else if (opponents.get(lastAgent).getLastAction() instanceof Offer)
             {
                 Bid partnerBid = ((Offer) opponents.get(lastAgent).getLastAction()).getBid();
                 double offeredUtilFromOpponent = getUtility(partnerBid);
 
-                // get current time
-                double time = timeline.getTime();
-                action = chooseRandomBidAction();
-
-                Bid myBid = ((Offer) action).getBid();
-                double myOfferedUtil = getUtility(myBid);
-
-                // accept under certain circumstances
-                if (isAcceptable(offeredUtilFromOpponent, myOfferedUtil, time))
-                    action = new Accept();
-
+                if (offeredUtilFromOpponent > EUNeal)
+                    return new Accept();
+                else
+                    return new Offer(getRandomBid());
             }
+
+            if (EUDeal > EUNeal)
+                action = new Offer(maximizeSocialWelfareBid());
+            else
+                action = new Offer(getRandomBid());
+
         } catch (Exception e)
         {
-            System.out.println("Exception in ChooseAction:" + e.getMessage());
+            System.err.println("Exception in ChooseAction:" + e.getMessage());
             action = new Accept(); // best guess if things go wrong.
         }
         return action;
-
-    }
-
-    public void receiveMessage(AgentID sender, Action arguments) {
-        lastAgent = sender;
-
-        opponents.putIfAbsent(sender, new Opponent(sender, mainUtilitySpace));
-        opponents.get(sender).addAction(arguments);
-
     }
 }
