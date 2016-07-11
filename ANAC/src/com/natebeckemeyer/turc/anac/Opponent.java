@@ -32,6 +32,7 @@ class Opponent
 
     /**
      * The estimated utilities of the agent. The structure of this map is as follows:
+     *
      * <pre>
      * {@code Objective --> Pair}
      *
@@ -42,6 +43,7 @@ class Opponent
      * {@code Value} is the possible discrete value and
      * {@code Utility} is the utility gained from its selection
      * </pre>
+     *
      */
     private final HashMap<Objective, Pair<Double, HashMap<Value, Double>>> estimatedUtilities = new HashMap<>();
 
@@ -115,7 +117,7 @@ class Opponent
     public void addAction(Action offer)
     {
         history.add(offer);
-        estimationStrategy.updateUtilities(Action.getBidFromAction(offer), estimatedUtilities);
+        estimationStrategy.updateUtilities(offer, estimatedUtilities);
     }
 
     /**

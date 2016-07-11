@@ -1,7 +1,7 @@
 package com.natebeckemeyer.turc.anac;
 
 import javafx.util.Pair;
-import negotiator.Bid;
+import negotiator.actions.Action;
 import negotiator.issue.Objective;
 import negotiator.issue.Value;
 
@@ -13,8 +13,8 @@ import java.util.HashMap;
 interface Updater
 {
     /**
-     * @param bid       The bid offered by the opponent
+     * @param offer       The bid offered by the opponent
      * @param utilities The set of utilities known for the agent
      */
-    void updateUtilities(Bid bid, HashMap<Objective, Pair<Double, HashMap<Value, Double>>> utilities);
+    void updateUtilities(Action offer, HashMap<Objective, Pair<Double, HashMap<Value, Double>>> utilities);
 }

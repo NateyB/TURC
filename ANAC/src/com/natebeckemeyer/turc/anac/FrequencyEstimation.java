@@ -2,6 +2,9 @@ package com.natebeckemeyer.turc.anac;
 
 import javafx.util.Pair;
 import negotiator.Bid;
+import negotiator.actions.Accept;
+import negotiator.actions.Action;
+import negotiator.actions.Offer;
 import negotiator.issue.Issue;
 import negotiator.issue.Objective;
 import negotiator.issue.Value;
@@ -14,10 +17,12 @@ import java.util.HashMap;
 class FrequencyEstimation implements Updater
 {
     @Override
-    public void updateUtilities(Bid bid, HashMap<Objective, Pair<Double, HashMap<Value, Double>>> utilities)
+    public void updateUtilities(Action offer, HashMap<Objective, Pair<Double, HashMap<Value, Double>>> utilities)
     {
-        if (bid != null)
+        if (offer instanceof Offer)
         {
+            Bid bid = ((Offer) offer).getBid();
+
             for (Issue entry : bid.getIssues())
             {
                 HashMap<Value, Double> issueMap = utilities.get(entry).getValue();

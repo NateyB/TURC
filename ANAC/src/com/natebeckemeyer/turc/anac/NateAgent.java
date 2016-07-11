@@ -7,8 +7,10 @@ import negotiator.Deadline;
 import negotiator.DiscreteTimeline;
 import negotiator.actions.Accept;
 import negotiator.actions.Action;
+import negotiator.actions.Inform;
 import negotiator.actions.Offer;
-import negotiator.issue.*;
+import negotiator.issue.Objective;
+import negotiator.issue.Value;
 import negotiator.parties.AbstractNegotiationParty;
 import negotiator.session.TimeLineInfo;
 import negotiator.utility.AbstractUtilitySpace;
@@ -32,6 +34,11 @@ public class NateAgent extends AbstractNegotiationParty
     private static final boolean verbose = false;
 
     /**
+     * Defines the social welfare-maximizing strategy that this agent will use.
+     */
+    private static final BidStrategy thisStrategy = BidStrategy.PRODUCT;
+
+    /**
      * The history of each partner's agent coded to its ID.
      */
     private HashMap<AgentID, Opponent> opponents = new HashMap<>();
@@ -42,8 +49,23 @@ public class NateAgent extends AbstractNegotiationParty
     private AgentID lastAgent;
 
     /**
+     * The number of parties involved in the negotiation.
+     */
+    private int numberOfParties;
+
+    /**
      * The mapping from each objective being discussed to a pair of its weight and a hashmap of its possible values to
-     * their weights.
+     * their weights. The structure of this map is as follows:
+     * <pre>
+     * {@code Objective --> Pair}
+     *
+     * {@code Pair --> (Weight, SubIssueMap)} where
+     * {@code Weight} is the weight of the issue
+     *
+     * {@code SubIssueMap --> (Value, Utility)} where
+     * {@code Value} is the possible discrete value and
+     * {@code Utility} is the utility gained from its selection
+     * </pre>
      */
     private HashMap<Objective, Pair<Double, HashMap<Value, Double>>> utilities = new HashMap<>();
 
@@ -57,14 +79,18 @@ public class NateAgent extends AbstractNegotiationParty
      */
     private double minUtilityRandom = 0.0;
 
-    /**
-     * init is called when a next session starts with the same opponent.
-     * In the case of this agent, init calculates the utilities of all of the
-     */
-    public void init(AbstractUtilitySpace util, Deadline deadline, TimeLineInfo info, long randomSeed, AgentID id)
-    {
-        super.init(util, deadline, info, randomSeed, id);
+    private PriorityQueue<Bid> bidPriorityQueue;
 
+    public int getNumberOfParties()
+    {
+        if (verbose)
+            System.out.println(numberOfParties);
+
+        return numberOfParties;//numberOfParties;
+    }
+
+    private void initializeUtilities()
+    {
         HashMap<Objective, Evaluator> itemUtilities = new HashMap<>();
         mainUtilitySpace = ((AdditiveUtilitySpace) utilitySpace);
 
@@ -113,6 +139,47 @@ public class NateAgent extends AbstractNegotiationParty
             }
     }
 
+    /**
+     * init is called when a next session starts with the same opponent.
+     * In the case of this agent, init calculates the utilities of all of the
+     */
+    public void init(AbstractUtilitySpace util, Deadline deadline, TimeLineInfo info, long randomSeed, AgentID id)
+    {
+        super.init(util, deadline, info, randomSeed, id);
+        initializeUtilities();
+        initializePriorityQueue();
+    }
+
+    private void initializePriorityQueue()
+    {
+        bidPriorityQueue = new PriorityQueue<>(
+                (a, b) -> Double.compare(calculateActualUtility(a), calculateActualUtility(b)));
+        bidPriorityQueue.addAll(performPermutations());
+    }
+
+    private List<Bid> performPermutations()
+    {
+        return performPermutations(new HashMap<Integer, Value>(), new LinkedList<>(), 1);
+    }
+
+    private List<Bid> performPermutations(HashMap<Integer, Value> progress, List<Bid> others, Integer issue)
+    {
+        if (issue > utilities.keySet().size())
+        {
+            others.add(new Bid(utilitySpace.getDomain(), progress));
+            return others;
+        }
+
+        EvaluatorDiscrete evaluator = (EvaluatorDiscrete) mainUtilitySpace.getEvaluator(issue);
+        for (Value valueDiscrete : evaluator.getValues())
+        {
+            progress.put(issue, valueDiscrete);
+            others = performPermutations(new HashMap<>(progress), others, issue + 1);
+        }
+
+        return others;
+    }
+
     public String getVersion()
     {
         return "2.0";
@@ -125,28 +192,6 @@ public class NateAgent extends AbstractNegotiationParty
     }
 
     /**
-     * Wrapper for getRandomBid, for convenience.
-     *
-     * @return new Action(Bid(..)), with bid utility > MINIMUM_BID_UTIL. If a
-     * problem occurs, it returns an Accept() action.
-     */
-    private Action chooseRandomBidAction()
-    {
-        Bid nextBid = null;
-        try
-        {
-            nextBid = getRandomBid();
-        } catch (Exception e)
-        {
-            System.err.println("Problem with received bid:" + e.getMessage()
-                    + ". cancelling bidding");
-        }
-        if (nextBid == null)
-            return (new Accept());
-        return (new Offer(nextBid));
-    }
-
-    /**
      * @return a random bid with high enough utility value.
      * @throws Exception if we can't compute the utility (eg no evaluators have been
      *                   set) or when other evaluators than a DiscreteEvaluator are
@@ -154,55 +199,15 @@ public class NateAgent extends AbstractNegotiationParty
      */
     private Bid getRandomBid() throws Exception
     {
-        HashMap<Integer, Value> values = new HashMap<>(); // pairs
-        // <issuenumber,chosen, value string>
-        ArrayList<Issue> issues = utilitySpace.getDomain().getIssues();
-        Random randomnr = new Random();
-
-        // create a random bid with utility>MINIMUM_BID_UTIL.
-        // note that this may never succeed if you set MINIMUM too high!!!
-        // in that case we will search for a bid till the time is up (3 minutes)
-        // but this is just a simple agent.
-        Bid bid;
+        PriorityQueue<Bid> copy = new PriorityQueue<>(bidPriorityQueue);
+        List<Bid> plausibleBids = new LinkedList<>();
         do
         {
-            for (Issue lIssue : issues)
-            {
-                switch (lIssue.getType())
-                {
-                    case DISCRETE:
-                        IssueDiscrete lIssueDiscrete = (IssueDiscrete) lIssue;
-                        int optionIndex = randomnr.nextInt(lIssueDiscrete.getNumberOfValues());
-                        values.put(lIssue.getNumber(), lIssueDiscrete.getValue(optionIndex));
-                        break;
+            plausibleBids.add(copy.poll());
+        } while (calculateActualUtility(copy.peek()) > minUtilityRandom);
 
-                    case REAL:
-                        IssueReal lIssueReal = (IssueReal) lIssue;
-                        int optionInd = randomnr.nextInt(lIssueReal.getNumberOfDiscretizationSteps() - 1);
-                        double realValue = lIssueReal.getLowerBound() +
-                                (lIssueReal.getUpperBound() - lIssueReal.getLowerBound()) *
-                                        (optionInd / (double) lIssueReal.getNumberOfDiscretizationSteps());
-                        values.put(lIssueReal.getNumber(), new ValueReal(realValue));
-                        break;
+        return plausibleBids.get(rand.nextInt(plausibleBids.size()));
 
-                    case INTEGER:
-                        IssueInteger lIssueInteger = (IssueInteger) lIssue;
-                        int optionIndex2 = lIssueInteger.getLowerBound() + randomnr.nextInt(
-                                lIssueInteger.getUpperBound() - lIssueInteger.getLowerBound());
-                        values.put(lIssueInteger.getNumber(), new ValueInteger(optionIndex2));
-                        break;
-
-
-                    default:
-                        throw new Exception("issue type " + lIssue.getType()
-                                + " not supported by SimpleAgent2");
-                }
-            }
-            bid = new Bid(utilitySpace.getDomain(), values);
-
-        } while (getUtility(bid) < minUtilityRandom);
-
-        return bid;
     }
 
     static <K> HashMap<K, Double> normalize(Map<K, Double> doubleMap)
@@ -231,30 +236,64 @@ public class NateAgent extends AbstractNegotiationParty
      */
     private double getDealProbability()
     {
-        return timeline.getTime();
+        return Math.pow(timeline.getTime(), 3);
+    }
+
+    private double getDecay(double time)
+    {
+        return Math.pow(1 - time, 3);
     }
 
     /**
-     * Calculates utility as a function of social welfare.
+     * Calculates utility of a bid as a function of social welfare. Returns a number in the range [0,1].
      *
      * @return The best known utility for the current timestep.
      */
-    private double getUtility()
+    private double calculateActualUtility(Bid bid)
     {
-        double util = 0;
+        // Get my utility
+        double util = getUtility(bid);
         try
         {
-            HashMap<Objective, Value> valueMapping = maximizeSocialWelfare();
+            HashMap<Objective, Value> valueMapping = new HashMap<>();
+            mainUtilitySpace.getEvaluators().forEach(
+                    entry -> valueMapping.put(entry.getKey(), bid.getValue(entry.getKey().getNumber())));
+
             for (Objective issue : valueMapping.keySet())
                 for (Opponent opponent : opponents.values())
-                    util += opponent.getEstimatedUtilities().get(issue).getValue().get(valueMapping.get(issue));
+                {
+                    double opponentUtil = opponent.getEstimatedUtilities().get(issue).getValue().get(
+                            valueMapping.get(issue));
+                    switch (thisStrategy)
+                    {
+                        case PRODUCT:
+                            util *= opponentUtil;
+                            break;
+
+                        case SUM:
+                            util += opponentUtil;
+                            break;
+                    }
+                }
         } catch (NullPointerException e)
         {
             System.err.println("Could not get utility at time " + timeline.getTime());
             return 0;
         }
 
-        return util;
+        // Average social welfare
+        switch (thisStrategy)
+        {
+            case SUM:
+                return util / getNumberOfParties();
+
+            case PRODUCT:
+                return Math.pow(util, 1. / getNumberOfParties());
+
+            default:
+                System.err.printf("%s could not handle strategy of type %s.%n", getName() + getVersion(), thisStrategy);
+                return 0;
+        }
     }
 
     private HashMap<Objective, Value> maximizeSocialWelfare()
@@ -269,10 +308,24 @@ public class NateAgent extends AbstractNegotiationParty
 
             for (Value current : utilities.get(issue).getValue().keySet())
             {
-                double welfare = 0;
+                // My utility for this value of this issue.
+                double welfare = utilities.get(issue).getValue().get(current);
 
                 for (Opponent opponent : opponents.values())
-                    welfare += opponent.getEstimatedUtilities().get(issue).getValue().getOrDefault(current, 0.);
+                {
+                    double opponentUtil = opponent.getEstimatedUtilities().get(issue).getValue().getOrDefault(current,
+                            0.);
+                    switch (thisStrategy)
+                    {
+                        case PRODUCT:
+                            welfare *= opponentUtil;
+                            break;
+
+                        case SUM:
+                            welfare += opponentUtil;
+                            break;
+                    }
+                }
 
                 if (welfare > soWel || argmax == null)
                 {
@@ -287,15 +340,10 @@ public class NateAgent extends AbstractNegotiationParty
         return mapping;
     }
 
-    private double getDecay(double time)
-    {
-        return Math.exp(-5 * time);
-    }
-
     private double getUpperDealValue()
     {
         double probability = getDealProbability();
-        double upperUtility = getUtility();
+        double upperUtility = calculateActualUtility(maximizeSocialWelfareBid());
 
         return upperUtility * probability;
     }
@@ -304,8 +352,7 @@ public class NateAgent extends AbstractNegotiationParty
     {
         double difference = getDecay((timeline.getCurrentTime() + 1) / timeline.getTotalTime());
 
-        double utility = getUtility() + difference;
-        double nextProbability = getDealProbability() - timeline.getTotalTime() / (timeline.getCurrentTime() + 1);
+        double upperBoundValue = calculateActualUtility(maximizeSocialWelfareBid()) + difference;
         double discount = utilitySpace.getDiscountFactor();
 
         switch (timeline.getType())
@@ -327,7 +374,7 @@ public class NateAgent extends AbstractNegotiationParty
                 return 0;
         }
 
-        return discount * nextProbability * utility;
+        return discount * upperBoundValue;
     }
 
     private Bid maximizeSocialWelfareBid()
@@ -343,6 +390,9 @@ public class NateAgent extends AbstractNegotiationParty
     @Override
     public void receiveMessage(AgentID sender, Action arguments)
     {
+        if (arguments instanceof Inform)
+            this.numberOfParties = (Integer) ((Inform) arguments).getValue();
+
         lastAgent = sender;
 
         opponents.putIfAbsent(sender, new Opponent(sender, mainUtilitySpace));
@@ -352,39 +402,28 @@ public class NateAgent extends AbstractNegotiationParty
     @Override
     public Action chooseAction(List<Class<? extends Action>> list)
     {
-        Action action = null;
+        Action action;
         try
         {
             double EUDeal = getUpperDealValue();
             double EUNeal = getUpperNextDeal();
             minUtilityRandom = EUNeal;
 
-            if (lastAgent == null || opponents.get(lastAgent).getLastAction() == null)
-                if (EUDeal > EUNeal)
-                    action = new Offer(maximizeSocialWelfareBid());
-                else
-                    action = new Offer(getRandomBid());
-
-            else if (opponents.get(lastAgent).getLastAction() instanceof Offer)
+            if (lastAgent != null && opponents.get(lastAgent).getLastAction() != null &&
+                    opponents.get(lastAgent).getLastAction() instanceof Offer)
             {
                 Bid partnerBid = ((Offer) opponents.get(lastAgent).getLastAction()).getBid();
-                double offeredUtilFromOpponent = getUtility(partnerBid);
+                double offeredUtilFromOpponent = calculateActualUtility(partnerBid);
 
-                if (offeredUtilFromOpponent > EUNeal)
-                    return new Accept();
-                else
-                    return new Offer(getRandomBid());
+                return (offeredUtilFromOpponent > EUNeal) ? new Accept() : new Offer(getRandomBid());
             }
 
-            if (EUDeal > EUNeal)
-                action = new Offer(maximizeSocialWelfareBid());
-            else
-                action = new Offer(getRandomBid());
+            return new Offer((EUDeal > EUNeal) ? maximizeSocialWelfareBid() : getRandomBid());
 
         } catch (Exception e)
         {
-            System.err.println("Exception in ChooseAction:" + e.getMessage());
-            action = new Accept(); // best guess if things go wrong.
+            System.err.println(getName() + getVersion() + " threw exception in chooseAction: " + e.getMessage());
+            action = new Accept();
         }
         return action;
     }
