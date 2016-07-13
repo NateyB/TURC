@@ -19,6 +19,7 @@ import negotiator.utility.Evaluator;
 import negotiator.utility.EvaluatorDiscrete;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * @author Nate Beckemeyer
@@ -79,14 +80,14 @@ public class NateAgent extends AbstractNegotiationParty
      */
     private double minUtilityRandom = 0.0;
 
-    private PriorityQueue<Bid> bidPriorityQueue;
+    private ArrayList<Bid> bidList;
 
     public int getNumberOfParties()
     {
         if (verbose)
             System.out.println(numberOfParties);
 
-        return numberOfParties;//numberOfParties;
+        return numberOfParties > 0 ? numberOfParties : 3;//numberOfParties;
     }
 
     private void initializeUtilities()
@@ -147,14 +148,13 @@ public class NateAgent extends AbstractNegotiationParty
     {
         super.init(util, deadline, info, randomSeed, id);
         initializeUtilities();
-        initializePriorityQueue();
+        initializeBidList();
     }
 
-    private void initializePriorityQueue()
+    private void initializeBidList()
     {
-        bidPriorityQueue = new PriorityQueue<>(
-                (a, b) -> Double.compare(calculateActualUtility(a), calculateActualUtility(b)));
-        bidPriorityQueue.addAll(performPermutations());
+        bidList = new ArrayList<>();
+        bidList.addAll(performPermutations());
     }
 
     private List<Bid> performPermutations()
@@ -199,14 +199,12 @@ public class NateAgent extends AbstractNegotiationParty
      */
     private Bid getRandomBid() throws Exception
     {
-        PriorityQueue<Bid> copy = new PriorityQueue<>(bidPriorityQueue);
-        List<Bid> plausibleBids = new LinkedList<>();
-        do
-        {
-            plausibleBids.add(copy.poll());
-        } while (calculateActualUtility(copy.peek()) > minUtilityRandom);
+        List<Bid> plausibleBids = bidList.stream().filter(
+                bid -> getUtility(bid) > minUtilityRandom).collect(
+                Collectors.toList());
 
-        return plausibleBids.get(rand.nextInt(plausibleBids.size()));
+        return plausibleBids.size() > 0 ? plausibleBids.get(rand.nextInt(plausibleBids.size())) : utilitySpace
+                .getMaxUtilityBid();
 
     }
 
@@ -288,7 +286,8 @@ public class NateAgent extends AbstractNegotiationParty
                 return util / getNumberOfParties();
 
             case PRODUCT:
-                return Math.pow(util, 1. / getNumberOfParties());
+                double newUtil = Math.pow(util, 1. / getNumberOfParties());
+                return newUtil;
 
             default:
                 System.err.printf("%s could not handle strategy of type %s.%n", getName() + getVersion(), thisStrategy);
@@ -391,7 +390,9 @@ public class NateAgent extends AbstractNegotiationParty
     public void receiveMessage(AgentID sender, Action arguments)
     {
         if (arguments instanceof Inform)
-            this.numberOfParties = (Integer) ((Inform) arguments).getValue();
+            this.numberOfParties = (int) ((Inform) arguments).getValue();
+        if (sender == null)
+            return;
 
         lastAgent = sender;
 
@@ -402,13 +403,31 @@ public class NateAgent extends AbstractNegotiationParty
     @Override
     public Action chooseAction(List<Class<? extends Action>> list)
     {
-        Action action;
+        double EUDeal = getUpperDealValue();
+        double EUNeal = getUpperNextDeal();
+        minUtilityRandom = EUNeal;
+
+        switch (timeline.getType())
+        {
+            case Time:
+                if (timeline.getTime() >= .99)
+                    return new Accept();
+                break;
+
+            case Rounds:
+                if (((DiscreteTimeline) timeline).getOwnRoundsLeft() <= 0)
+                    return new Accept();
+                break;
+
+            default:
+                System.err.println(
+                        getName() + getVersion() + " is not compatible with a timeline of type " + timeline.getType());
+                System.exit(16);
+                return new Accept();
+        }
+
         try
         {
-            double EUDeal = getUpperDealValue();
-            double EUNeal = getUpperNextDeal();
-            minUtilityRandom = EUNeal;
-
             if (lastAgent != null && opponents.get(lastAgent).getLastAction() != null &&
                     opponents.get(lastAgent).getLastAction() instanceof Offer)
             {
@@ -418,13 +437,17 @@ public class NateAgent extends AbstractNegotiationParty
                 return (offeredUtilFromOpponent > EUNeal) ? new Accept() : new Offer(getRandomBid());
             }
 
-            return new Offer((EUDeal > EUNeal) ? maximizeSocialWelfareBid() : getRandomBid());
-
         } catch (Exception e)
         {
             System.err.println(getName() + getVersion() + " threw exception in chooseAction: " + e.getMessage());
-            action = new Accept();
         }
-        return action;
+
+        try
+        {
+            return new Offer((EUDeal > EUNeal) ? maximizeSocialWelfareBid() : getRandomBid());
+        } catch (Exception e)
+        {
+            return new Accept();
+        }
     }
 }

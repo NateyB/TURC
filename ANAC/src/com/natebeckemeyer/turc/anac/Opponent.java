@@ -32,7 +32,7 @@ class Opponent
 
     /**
      * The estimated utilities of the agent. The structure of this map is as follows:
-     *
+     * <p>
      * <pre>
      * {@code Objective --> Pair}
      *
@@ -43,7 +43,6 @@ class Opponent
      * {@code Value} is the possible discrete value and
      * {@code Utility} is the utility gained from its selection
      * </pre>
-     *
      */
     private final HashMap<Objective, Pair<Double, HashMap<Value, Double>>> estimatedUtilities = new HashMap<>();
 
@@ -146,10 +145,15 @@ class Opponent
             Objective key = entry.getKey();
             EvaluatorDiscrete evaluatorDiscrete = (EvaluatorDiscrete) entry.getValue();
 
-            estimatedUtilities.put(key, new Pair<>(0., new HashMap<>()));
+            estimatedUtilities.put(key, new Pair<>(1. / utilitySpace.getEvaluators().size(), new HashMap<>()));
             evaluatorDiscrete.getValues().forEach(discreteVal -> estimatedUtilities.get(key).getValue()
-                    .put(discreteVal, 0.));
+                    .put(discreteVal, 1.));
         }
+
+
+        for (HashMap.Entry<Objective, Pair<Double, HashMap<Value, Double>>> map : estimatedUtilities.entrySet())
+            estimatedUtilities.put(map.getKey(),
+                    new Pair<>(map.getValue().getKey(), NateAgent.normalize(map.getValue().getValue())));
     }
 
 }

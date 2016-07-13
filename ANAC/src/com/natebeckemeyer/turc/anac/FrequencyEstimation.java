@@ -2,7 +2,6 @@ package com.natebeckemeyer.turc.anac;
 
 import javafx.util.Pair;
 import negotiator.Bid;
-import negotiator.actions.Accept;
 import negotiator.actions.Action;
 import negotiator.actions.Offer;
 import negotiator.issue.Issue;
@@ -13,9 +12,12 @@ import java.util.HashMap;
 
 /**
  * Created for TURC by @author Nate Beckemeyer on 2016-06-30.
+ * <p>
  */
 class FrequencyEstimation implements Updater
 {
+    private int interactionLength = 0;
+
     @Override
     public void updateUtilities(Action offer, HashMap<Objective, Pair<Double, HashMap<Value, Double>>> utilities)
     {
@@ -28,8 +30,8 @@ class FrequencyEstimation implements Updater
                 HashMap<Value, Double> issueMap = utilities.get(entry).getValue();
                 Value number = bid.getValue(entry.getNumber());
 
-                issueMap.put(number, issueMap.get(number) + 1);
-                NateAgent.normalize(issueMap);
+                issueMap.put(number, issueMap.get(number) + 1. / (++interactionLength));
+                utilities.put(entry, new Pair<>(utilities.get(entry).getKey(), NateAgent.normalize(issueMap)));
             }
         }
     }
