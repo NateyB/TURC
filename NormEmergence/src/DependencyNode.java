@@ -61,8 +61,7 @@ final class DependencyNode
      */
     static DependencyNode get(String name, Set<DependencyNode> dependencies)
     {
-        if (nodes.getOrDefault(name, null) == null)
-            nodes.put(name, new DependencyNode(dependencies, name));
+        nodes.putIfAbsent(name, new DependencyNode(dependencies, name));
         return nodes.get(name);
     }
 

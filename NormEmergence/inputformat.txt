@@ -1,0 +1,10 @@
+Node_Name : s e
+Node_Depedency Node_Name : x y
+John Node_Name Node_Dependency: s e x y
+
+The node name, followed by a space, followed by the space-separated node dependencies. Then a space, and a colon.
+Then, another space, followed by space-separated "edges." The edge is a pair of space-separated characters indicating
+the end vertices of that edge.
+Using the final example above, the dependency node would be named "John". It would look for nodes named "Node_Name" &
+"Node_Dependency". Once it found them, it would construct a node with those dependencies. Then, it would be used to
+represent the edges "(s, e)" (for start & end) and "(x, y)", so that if it were cut, those edges would also be cut.
