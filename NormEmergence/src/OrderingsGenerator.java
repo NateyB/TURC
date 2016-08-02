@@ -1,5 +1,7 @@
 import javafx.util.Pair;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.util.*;
 
 /**
@@ -7,8 +9,7 @@ import java.util.*;
  */
 public class OrderingsGenerator
 {
-    static boolean punishment = true;
-    static boolean metapunishment = false;
+    private HashMap<String, HashMap<Character, HashSet<Character>>> initialTopology = new HashMap<>();
 
     private static List<List<DependencyNode>> getValidOrderings(DependencyGraph g)
     {
@@ -21,7 +22,10 @@ public class OrderingsGenerator
     {
         List<DependencyNode> choices = g.getFreeNodes();
         if (choices.size() == 0)
+        {
             possibleOptions.add(currentPath);
+            return possibleOptions;
+        }
 
         for (DependencyNode n : choices)
         {
@@ -93,50 +97,75 @@ public class OrderingsGenerator
         return results;
     }
 
-    private static DependencyGraph initializeGraph()
+    private DependencyGraph initializeGraph(String filename)
     {
         HashSet<DependencyNode> nodes = new HashSet<>();
-        DependencyNode a = DependencyNode.get("a");
-        DependencyNode b = DependencyNode.get("b", new HashSet<>(Arrays.asList(a)));
-        DependencyNode d = DependencyNode.get("d", new HashSet<>(Arrays.asList(a)));
-        DependencyNode c = DependencyNode.get("c", new HashSet<>(Arrays.asList(b, d)));
-        nodes.addAll(Arrays.asList(a, b, c, d));
-        if (punishment)
+        Scanner parser;
+        try
         {
-            DependencyNode h = DependencyNode.get("h", new HashSet<>(Arrays.asList(d)));
-            DependencyNode f = DependencyNode.get("f", new HashSet<>(Arrays.asList(c, h)));
-            DependencyNode e = DependencyNode.get("e", new HashSet<>(Arrays.asList(f)));
-            DependencyNode g = DependencyNode.get("g", new HashSet<>(Arrays.asList(e)));
-            DependencyNode i = DependencyNode.get("i", new HashSet<>(Arrays.asList(g)));
-            nodes.addAll(Arrays.asList(e, f, g, h, i));
+            parser = new Scanner(new File(filename));
+        } catch (FileNotFoundException e)
+        {
+            e.printStackTrace();
+            System.exit(10);
+            return null;
         }
 
+        while (parser.hasNextLine())
+        {
+            Scanner line = new Scanner(parser.nextLine());
+            while (line.hasNext())
+            {
+                String identifier = line.next();
+                HashSet<DependencyNode> dependencies = new HashSet<>();
+                while (!line.hasNext(":"))
+                    dependencies.add(DependencyNode.get(line.next()));
+                nodes.add(DependencyNode.get(identifier, dependencies));
+                initialTopology.put(identifier, new HashMap<>());
+                line.skip(" :");
+
+                // Now come the edges, so there should be at least two more if there is one more; they should be chars.
+                while (line.hasNext())
+                {
+                    Character start = line.next().charAt(0);
+                    Character end = line.next().charAt(0);
+                    initialTopology.get(identifier).putIfAbsent(start, new HashSet<>());
+                    initialTopology.get(identifier).get(start).add(end);
+                }
+
+            }
+        }
         return new DependencyGraph(nodes);
     }
 
 
     public static void main(String[] args)
     {
-        if (metapunishment && !punishment)
+        Scanner console = new Scanner(System.in);
+        System.out.printf("Please enter the filepath of the dataset, or quit to exit: ");
+        do
         {
-            punishment = true;
-            System.out.println(
-                    "Attempted to use metapunishment without allowing for punishment. The punishment flag has been " +
-                            "set to true.");
-        }
-        DependencyGraph graph = initializeGraph();
+            String input = console.nextLine().trim();
+            if (input.equalsIgnoreCase("quit") || input.equalsIgnoreCase("exit"))
+                return;
 
-        List<List<DependencyNode>> choices = getValidOrderings(graph);
-        Set<Pair<Set<String>, Set<String>>> combinations = splitAtLinkingCosts(choices);
+            OrderingsGenerator generator = new OrderingsGenerator();
+            DependencyGraph graph = generator.initializeGraph("NormEmergence/" + input);
 
-        System.out.println(combinations.size());
-        String delimiter = new String(new char[38]).replace("\0", "-");
-        combinations.forEach(pair ->
-        {
-            System.out.println(pairToString(pair) + ": ");
-            TopologyBuilder topologies = new TopologyBuilder();
-            topologies.cutEdges(pair.getValue());
-            System.out.printf("%s%n%s%n", topologies, delimiter);
-        });
+            List<List<DependencyNode>> choices = getValidOrderings(graph);
+            Set<Pair<Set<String>, Set<String>>> combinations = splitAtLinkingCosts(choices);
+
+            System.out.println("Number of meaningful options: " + combinations.size());
+            String delimiter = new String(new char[38]).replace("\0", "-");
+            combinations.forEach(pair ->
+            {
+                System.out.println(pairToString(pair) + ": ");
+                TopologyBuilder topologies = new TopologyBuilder(generator.initialTopology);
+                topologies.cutEdges(pair.getValue());
+                System.out.printf("%s%n%s%n", topologies, delimiter);
+            });
+            System.out.println();
+            System.out.printf("Please enter the name of the dataset, or quit to exit: ");
+        } while (console.hasNextLine());
     }
 }

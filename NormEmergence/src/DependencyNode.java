@@ -48,7 +48,7 @@ final class DependencyNode
      */
     static DependencyNode get(String name)
     {
-        return nodes.getOrDefault(name, new DependencyNode(new HashSet<>(), name));
+        return get(name, new HashSet<>());
     }
 
     /**
@@ -61,7 +61,9 @@ final class DependencyNode
      */
     static DependencyNode get(String name, Set<DependencyNode> dependencies)
     {
-        return nodes.getOrDefault(name, new DependencyNode(new HashSet<>(dependencies), name));
+        if (nodes.getOrDefault(name, null) == null)
+            nodes.put(name, new DependencyNode(dependencies, name));
+        return nodes.get(name);
     }
 
     @Override public String toString()
@@ -72,7 +74,7 @@ final class DependencyNode
     @Override public boolean equals(Object other)
     {
         boolean result = false;
-        if (other instanceof DependencyNode)
+        if (other != null && other instanceof DependencyNode)
         {
             DependencyNode that = (DependencyNode) other;
             result = this.name.equals(that.name);

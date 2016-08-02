@@ -1,0 +1,4 @@
+a : z x
+b a : x x
+d a : z z
+c b d : x z
