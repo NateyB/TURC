@@ -180,7 +180,7 @@ public class OrderingsGenerator
                 return;
 
             OrderingsGenerator generator = new OrderingsGenerator();
-            DependencyGraph graph = generator.initializeGraph("NormEmergence/" + input);
+            DependencyGraph graph = generator.initializeGraph("NormEmergence/datasets/" + input);
 
             HashMap<String, TopologyBuilder> allConfigurations = generator.getAllConfigurations(graph);
             System.out.println("Number of meaningful linking cost placements: " + allConfigurations.size());
