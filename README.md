@@ -62,3 +62,13 @@ playground for various AI research.
 
 ### My research
 Coming soon!
+
+## NormEmergence
+### Description
+The Norm Emergence project that I've worked on includes generating network topologies
+from starting parameter values. The software that I've created here takes in an input
+file specifying nodes and their dependencies (which, for this project, is just a way
+of representing all possible logical orderings of payoffs), constructs a graph,
+places a linking cost somewhere in the orderings, and if the placement is unique
+(i.e., the tuple of the sets of all nodes ranked more highly and all nodes ranked
+more lowly is unique), then a topology is constructed from that ordering.
